@@ -14,18 +14,15 @@ DB_CONFIG = {
     "database": "attendance_db"
 }
 
-# Load trained model and label encoder
 with open("models/attendance_model.pkl", "rb") as f:
     svm_clf = pickle.load(f)
 
 with open("models/label_encoder.pkl", "rb") as f:
     label_encoder: LabelEncoder = pickle.load(f)
 
-# Connect to MySQL
 conn = mysql.connector.connect(**DB_CONFIG)
 cursor = conn.cursor()
 
-# Create tables if they don't exist
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS students (
     student_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -57,24 +54,21 @@ def mark_attendance(image_path):
         return
 
     try:
-        # Extract faces
-        detections = DeepFace.extract_faces(
+        faces = DeepFace.represent(
             img_path=image_path,
-            detector_backend="retinaface",
+            model_name=MODEL_NAME,
             enforce_detection=False
         )
 
-        if not detections:
+        if not faces:
             print("No faces detected in the image!")
             return
 
-        for face in detections:
-            # Use the embedding from extracted face
+        for face in faces:
             embedding = np.array(face["embedding"]).reshape(1, -1)
             y_pred = svm_clf.predict(embedding)[0]
             student_name = label_encoder.inverse_transform([y_pred])[0]
 
-            # Check if student exists
             cursor.execute("SELECT student_id FROM students WHERE student_name = %s", (student_name,))
             result = cursor.fetchone()
 
@@ -87,9 +81,8 @@ def mark_attendance(image_path):
 
             now = datetime.now()
             today = now.date()
-            time_in = now.time()
+            time_in = now.strftime("%H:%M:%S")
 
-            # Insert attendance
             try:
                 cursor.execute("""
                     INSERT INTO attendance (student_id, date, time_in, status)
@@ -105,8 +98,9 @@ def mark_attendance(image_path):
 
 
 if __name__ == "__main__":
-    classroom_photo = input("Enter path to classroom image: ").strip()
-    mark_attendance(classroom_photo)
-
-    cursor.close()
-    conn.close()
+    try:
+        classroom_photo = input("Enter path to classroom image: ").strip()
+        mark_attendance(classroom_photo)
+    finally:
+        cursor.close()
+        conn.close()
